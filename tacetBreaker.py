@@ -21,54 +21,60 @@ try:
 
     print(f"Total samples: {num_samples}")
     print(f"Duration: {duration_sec:.2f} seconds")
-    print(f"Data max one channel: {data[:,0]}")
+    print(f"Data max one channel: {np.max(data[:,0])}")
+    print(f"Data max one channel: {np.max(data[:,1])}")
     chunk_size = 2048
+    hop_size = chunk_size//2
+    num_samples = data.shape[0] 
     no_of_perfect_chunks = num_samples//chunk_size
     print(f"\nProcessing {no_of_perfect_chunks} chunks of size {chunk_size}...")
-
+    
+    window = np.hanning(chunk_size)
     processed_data = np.zeros_like(data)
 
     real_requencies = fft.fftfreq(chunk_size, 1/sample_rate)
     
-    target_hz = 3000
+    target_hz = 500
+    boost_factor = 10
 
     indices_to_boost = np.where(np.abs(real_requencies) > target_hz)
-
 
     #left_chunk = num_samples%chunk_size
     start = 0
     end = 0
-    for i in range(no_of_perfect_chunks):
-        start = i * chunk_size
+    current_pos = 0
+    while current_pos + chunk_size <= num_samples:
+        start = current_pos
         end = start + chunk_size
 
         current_chunk = data[start:end, :]
 
         # for ch in range(2):
 
-        chunk_left = current_chunk[:,0]
+        chunk_left = current_chunk[:,0] * window
 
         frequencies_left = fft.fft(chunk_left)
 
-        frequencies_left[indices_to_boost] = frequencies_left[indices_to_boost] * 2
+        frequencies_left[indices_to_boost] = frequencies_left[indices_to_boost] * boost_factor
 
         new_chunk_left = fft.ifft(frequencies_left)
 
-        processed_data[start:end, 0] = new_chunk_left.real # left channel
+        processed_data[start:end, 0] += new_chunk_left.real # left channel
         
         # Process Right channel
-        chunk_right = current_chunk[:,1]
+        chunk_right = current_chunk[:,1] * window
 
         frequencies_right = fft.fft(chunk_right)
 
-        frequencies_right[indices_to_boost] = frequencies_right[indices_to_boost] * 2
+        frequencies_right[indices_to_boost] = frequencies_right[indices_to_boost] * boost_factor
 
         new_chunk_right = fft.ifft(frequencies_right) 
 
-        processed_data[start:end, 1] = new_chunk_right.real # right channel
+        processed_data[start:end, 1] += new_chunk_right.real # right channel    
+        current_pos += hop_size
 
-        if i % 500 == 0:
-            print(f"Processed chunk {i} of {no_of_perfect_chunks}")
+        if current_pos % (hop_size * 100)  == 0:
+            print(f"Processed chunk {current_pos}")
 
     print("Finished processing all the chunks.")
     
@@ -83,22 +89,22 @@ try:
         remaining_chunk[:num_remaining, :] = remaining_chunk_unpadded
 
     # Handling left channel
-        chunk_left = remaining_chunk[:,0]
+        chunk_left = remaining_chunk[:,0] * window
         frequencies_left = fft.fft(chunk_left)
-        frequencies_left[indices_to_boost] = frequencies_left[indices_to_boost] * 2
+        frequencies_left[indices_to_boost] = frequencies_left[indices_to_boost] * boost_factor
 
         new_chunk_left = fft.ifft(frequencies_left)
 
     # Handling right channel leftover
-        chunk_right = remaining_chunk[:,1]
+        chunk_right = remaining_chunk[:,1] * window
 
         frequencies_right = fft.fft(chunk_right)
-        frequencies_right[indices_to_boost] = frequencies_right[indices_to_boost] * 2
+        frequencies_right[indices_to_boost] = frequencies_right[indices_to_boost] * boost_factor
 
         new_chunk_right = fft.ifft(frequencies_right)
 
-        processed_data[end:,0] = new_chunk_left.real[:num_remaining]
-        processed_data[end:,1] = new_chunk_right.real[:num_remaining]
+        processed_data[end:,0] += new_chunk_left.real[:num_remaining]
+        processed_data[end:,1] += new_chunk_right.real[:num_remaining]
 
         print(f"Successfully parsed the remaining chunk")
     else:
