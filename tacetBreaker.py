@@ -1,2 +1,115 @@
-__import__('pprint').pprint("Hello My tacet Breaker..")
+from scipy.io import *
+from scipy import fft
+import soundfile as sf
+import numpy as np
+try:
+    data,sample_rate = sf.read('resources/sample1.wav')
+
+    print(f"Successfully loaded file.")
+    print(f"Sample Rate (Hz): {sample_rate}")
+    print(f"Data type: {data.dtype}")
+    print(f"Data shape: {data.shape}")
+
+    if len(data.shape) == 1:
+        print("This is mono audio file.")
+        num_samples = data.shape[0]
+    else:
+        print(f"This is a STEREO audio file with {data.shape[1]} channels.")
+        num_samples = data.shape[0]
+    # data = data[:,0]
+    duration_sec = num_samples/sample_rate
+
+    print(f"Total samples: {num_samples}")
+    print(f"Duration: {duration_sec:.2f} seconds")
+    print(f"Data max one channel: {data[:,0]}")
+    chunk_size = 2048
+    no_of_perfect_chunks = num_samples//chunk_size
+    print(f"\nProcessing {no_of_perfect_chunks} chunks of size {chunk_size}...")
+
+    processed_data = np.zeros_like(data)
+
+    real_requencies = fft.fftfreq(chunk_size, 1/sample_rate)
+    
+    target_hz = 3000
+
+    indices_to_boost = np.where(np.abs(real_requencies) > target_hz)
+
+
+    #left_chunk = num_samples%chunk_size
+    start = 0
+    end = 0
+    for i in range(no_of_perfect_chunks):
+        start = i * chunk_size
+        end = start + chunk_size
+
+        current_chunk = data[start:end, :]
+
+        # for ch in range(2):
+
+        chunk_left = current_chunk[:,0]
+
+        frequencies_left = fft.fft(chunk_left)
+
+        frequencies_left[indices_to_boost] = frequencies_left[indices_to_boost] * 2
+
+        new_chunk_left = fft.ifft(frequencies_left)
+
+        processed_data[start:end, 0] = new_chunk_left.real # left channel
+        
+        # Process Right channel
+        chunk_right = current_chunk[:,1]
+
+        frequencies_right = fft.fft(chunk_right)
+
+        frequencies_right[indices_to_boost] = frequencies_right[indices_to_boost] * 2
+
+        new_chunk_right = fft.ifft(frequencies_right) 
+
+        processed_data[start:end, 1] = new_chunk_right.real # right channel
+
+        if i % 500 == 0:
+            print(f"Processed chunk {i} of {no_of_perfect_chunks}")
+
+    print("Finished processing all the chunks.")
+    
+    remaining_chunk_unpadded = data[end:, :]
+    num_remaining = remaining_chunk_unpadded.shape[0]
+    if num_remaining > 0 :
+
+        print(f"Processing remaining {num_remaining} samples...")
+
+        remaining_chunk = np.zeros((chunk_size,2))
+
+        remaining_chunk[:num_remaining, :] = remaining_chunk_unpadded
+
+    # Handling left channel
+        chunk_left = remaining_chunk[:,0]
+        frequencies_left = fft.fft(chunk_left)
+        frequencies_left[indices_to_boost] = frequencies_left[indices_to_boost] * 2
+
+        new_chunk_left = fft.ifft(frequencies_left)
+
+    # Handling right channel leftover
+        chunk_right = remaining_chunk[:,1]
+
+        frequencies_right = fft.fft(chunk_right)
+        frequencies_right[indices_to_boost] = frequencies_right[indices_to_boost] * 2
+
+        new_chunk_right = fft.ifft(frequencies_right)
+
+        processed_data[end:,0] = new_chunk_left.real[:num_remaining]
+        processed_data[end:,1] = new_chunk_right.real[:num_remaining]
+
+        print(f"Successfully parsed the remaining chunk")
+    else:
+        print("No remaining chunk to process.")
+
+    sf.write('output_file.wav',processed_data, sample_rate)
+    print(f"Successfully saved to 'output_file.wav'")
+
+except FileNotFoundError:
+    print("Error")
+except Exception as e:
+    print(f"An error occurred: {e}")
+
 
