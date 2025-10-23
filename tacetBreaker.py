@@ -33,19 +33,44 @@ try:
     processed_data = np.zeros_like(data)
 
     real_requencies = fft.fftfreq(chunk_size, 1/sample_rate)
-    
-    target_hz = 500
-    boost_factor = 10
+    #=================================Filter Smart====================== 
+    low_hz = 1500.0
+    high_hz = 3000.0
+    boost_db = 12.0
 
-    indices_to_boost = np.where(np.abs(real_requencies) > target_hz)
+    boost_factor = 10.0**(boost_db / 20.0) # Math formula for db
+
+    gain_filter = np.ones(chunk_size)
+
+    low_indices = np.where(np.abs(real_requencies) >= low_hz)[0]
+
+    high_indices = np.where(np.abs(real_requencies) >= high_hz)[0]
+
+    gain_filter[high_indices] = boost_factor
+
+    # Applying the "Gradual slope" part
+
+    slope_indices = np.where((np.abs(real_requencies)>=low_hz) & (np.abs(real_requencies) < high_hz))[0]
+
+    if len(slope_indices) > 0:
+        slope_freq = np.abs(real_requencies[slope_indices])
+        ramp = np.interp(slope_freq, [low_hz, high_hz], [1.0, boost_factor])
+        gain_filter[slope_indices] = ramp
+    print(f"Built a gain filter ramping {low_hz}Hz to {high_hz}Hz")
+
+    #=================================Filter======================
+
+    # indices_to_boost = np.where(np.abs(real_requencies) > target_hz)
 
     #left_chunk = num_samples%chunk_size
     start = 0
     end = 0
+    overlap_scale = np.zeros(num_samples)
     current_pos = 0
     while current_pos + chunk_size <= num_samples:
         start = current_pos
         end = start + chunk_size
+        overlap_scale[start:end] += window
 
         current_chunk = data[start:end, :]
 
@@ -55,7 +80,7 @@ try:
 
         frequencies_left = fft.fft(chunk_left)
 
-        frequencies_left[indices_to_boost] = frequencies_left[indices_to_boost] * boost_factor
+        frequencies_left = frequencies_left * gain_filter
 
         new_chunk_left = fft.ifft(frequencies_left)
 
@@ -66,7 +91,7 @@ try:
 
         frequencies_right = fft.fft(chunk_right)
 
-        frequencies_right[indices_to_boost] = frequencies_right[indices_to_boost] * boost_factor
+        frequencies_right = frequencies_right * gain_filter
 
         new_chunk_right = fft.ifft(frequencies_right) 
 
@@ -89,9 +114,11 @@ try:
         remaining_chunk[:num_remaining, :] = remaining_chunk_unpadded
 
     # Handling left channel
+        overlap_scale[end:] += window[:num_remaining]
+
         chunk_left = remaining_chunk[:,0] * window
         frequencies_left = fft.fft(chunk_left)
-        frequencies_left[indices_to_boost] = frequencies_left[indices_to_boost] * boost_factor
+        frequencies_left = frequencies_left * gain_filter
 
         new_chunk_left = fft.ifft(frequencies_left)
 
@@ -99,7 +126,7 @@ try:
         chunk_right = remaining_chunk[:,1] * window
 
         frequencies_right = fft.fft(chunk_right)
-        frequencies_right[indices_to_boost] = frequencies_right[indices_to_boost] * boost_factor
+        frequencies_right = frequencies_right * gain_filter
 
         new_chunk_right = fft.ifft(frequencies_right)
 
@@ -109,6 +136,10 @@ try:
         print(f"Successfully parsed the remaining chunk")
     else:
         print("No remaining chunk to process.")
+
+    #processed_data /= (overlap_scale[:, None] + 1e-9)
+
+    processed_data /= np.max(np.abs(processed_data) + 1e-9)
 
     sf.write('output_file.wav',processed_data, sample_rate)
     print(f"Successfully saved to 'output_file.wav'")
